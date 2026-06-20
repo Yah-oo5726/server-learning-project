@@ -24,17 +24,17 @@ func main() {
 		http.StripPrefix("/app", http.FileServer(http.Dir("."))).ServeHTTP(w, r)
 	})
 	servemux.Handle("/app/", config.middlewareMetricsInc(apphandler))
-	servemux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+	servemux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
-	servemux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+	servemux.HandleFunc("GET /api/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("Hits: " + strconv.FormatInt(config.fileserverHits.Load(), 10)))
 	})
-	servemux.HandleFunc("POST /reset", func(w http.ResponseWriter, r *http.Request) {
+	servemux.HandleFunc("POST /api/reset", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		config.fileserverHits.Store(0)
