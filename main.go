@@ -1,8 +1,8 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
-	"strconv"
 	"sync/atomic"
 )
 
@@ -29,16 +29,16 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
-	servemux.HandleFunc("GET /api/metrics", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	servemux.HandleFunc("GET /admin/metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Hits: " + strconv.FormatInt(config.fileserverHits.Load(), 10)))
+		w.Write([]byte(fmt.Sprintf("<html>\n<body>\n<h1>Welcome, Chirpy Admin</h1>\n<p>Chirpy has been visited %d times!</p>\n</body>\n</html>", config.fileserverHits.Load())))
 	})
-	servemux.HandleFunc("POST /api/reset", func(w http.ResponseWriter, r *http.Request) {
+	servemux.HandleFunc("POST /admin/reset", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		config.fileserverHits.Store(0)
-		w.Write([]byte("Hits reset to 0"))
+		w.Write([]byte("Hits reset to 0\n"))
 	})
 	server := http.Server{Handler: servemux, Addr: ":8080"}
 	server.ListenAndServe()
