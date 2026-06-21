@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync/atomic"
@@ -39,6 +40,22 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		config.fileserverHits.Store(0)
 		w.Write([]byte("Hits reset to 0\n"))
+	})
+	servemux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
+		type parameters struct {
+			Body string `json:"body"`
+		}
+		message := parameters{}
+		err := json.NewDecoder(r.Body).Decode(&message)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid JSON payload")
+			return
+		}
+		if len(message.Body) > 140 {
+			respondWithError(w, http.StatusBadRequest, "Message exceeds 140 characters")
+			return
+		}
+		respondWithJSON(w, http.StatusOK, successResponse{Valid: true})
 	})
 	server := http.Server{Handler: servemux, Addr: ":8080"}
 	server.ListenAndServe()
