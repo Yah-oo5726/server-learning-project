@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 type errorResponse struct {
@@ -10,7 +11,7 @@ type errorResponse struct {
 }
 
 type successResponse struct {
-	Valid bool `json:"valid"`
+	CleanedBody string `json:"cleaned_body"`
 }
 
 func respondWithError(w http.ResponseWriter, code int, message string) {
@@ -34,4 +35,20 @@ func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 		return
 	}
 	w.Write(responseJSON)
+}
+
+func cleanMessage(message string) string {
+	censoredWords := []string{"kerfuffle", "sharbert", "fornax"}
+	messageLower := strings.ToLower(message)
+	wordsLower := strings.Fields(messageLower)
+	words := strings.Fields(message)
+	for i, word := range wordsLower {
+		for _, censored := range censoredWords {
+			if word == censored {
+				words[i] = "****"
+				break
+			}
+		}
+	}
+	return strings.Join(words, " ")
 }

@@ -55,7 +55,7 @@ func main() {
 			respondWithError(w, http.StatusBadRequest, "Message exceeds 140 characters")
 			return
 		}
-		respondWithJSON(w, http.StatusOK, successResponse{Valid: true})
+		respondWithJSON(w, http.StatusOK, successResponse{CleanedBody: cleanMessage(message.Body)})
 	})
 	server := http.Server{Handler: servemux, Addr: ":8080"}
 	server.ListenAndServe()
