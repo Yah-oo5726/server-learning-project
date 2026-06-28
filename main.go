@@ -166,6 +166,46 @@ func main() {
 		}
 		respondWithJSON(w, 201, chirpStruct)
 	})
+	servemux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
+		chirps, err := config.db.GetChirps(r.Context())
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusInternalServerError, "Error fetching chirps")
+			return
+		}
+		chirpStructs := make([]Chirp, len(chirps))
+		for i, chirp := range chirps {
+			chirpStructs[i] = Chirp{
+				ID:        chirp.ID,
+				CreatedAt: chirp.CreatedAt,
+				UpdatedAt: chirp.UpdatedAt,
+				Body:      chirp.Body,
+				UserID:    chirp.UserID,
+			}
+		}
+		respondWithJSON(w, http.StatusOK, chirpStructs)
+	})
+	servemux.HandleFunc("GET /api/chirps/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, err := uuid.Parse(r.PathValue("id"))
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid chirp ID")
+			return
+		}
+		chirp, err := config.db.GetChirpByID(r.Context(), id)
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusNotFound, "Chirp not found")
+			return
+		}
+		chirpStruct := Chirp{
+			ID:        chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body:      chirp.Body,
+			UserID:    chirp.UserID,
+		}
+		respondWithJSON(w, http.StatusOK, chirpStruct)
+	})
 	server := http.Server{Handler: servemux, Addr: ":8080"}
 	server.ListenAndServe()
 }
