@@ -4,11 +4,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/Yah-oo5726/server-learning-project/internal/database"
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 
 	_ "github.com/lib/pq"
@@ -16,7 +19,22 @@ import (
 
 type apiConfig struct {
 	fileserverHits atomic.Int64
-	db *database.Queries
+	db             *database.Queries
+}
+
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
+}
+
+type Chirp struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserID    uuid.UUID `json:"user_id"`
 }
 
 func (c *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -28,7 +46,7 @@ func (c *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 
 func main() {
 	godotenv.Load()
-	dbURL := os.Getenv("DATABASE_URL")
+	dbURL := os.Getenv("DB_URL")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		fmt.Println("Error connecting to the database:", err)
@@ -66,6 +84,18 @@ func main() {
 		if err != nil {
 			fmt.Println("Error writing response:", err)
 		}
+		err = config.db.ResetUsers(r.Context())
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusInternalServerError, "Error resetting users")
+			return
+		}
+		err = config.db.ResetChirps(r.Context())
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusInternalServerError, "Error resetting chirps")
+			return
+		}
 	})
 	servemux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
 		type parameters struct {
@@ -82,6 +112,59 @@ func main() {
 			return
 		}
 		respondWithJSON(w, http.StatusOK, successResponse{CleanedBody: cleanMessage(message.Body)})
+	})
+	servemux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
+		type parameters struct {
+			Email string `json:"email"`
+		}
+		message := parameters{}
+		err := json.NewDecoder(r.Body).Decode(&message)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid JSON payload")
+			return
+		}
+		user, err := config.db.CreateUser(r.Context(), message.Email)
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusInternalServerError, "Error creating user")
+			return
+		}
+		userStruct := User{
+			ID:        user.ID,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+			Email:     user.Email,
+		}
+		respondWithJSON(w, 201, userStruct)
+	})
+	servemux.HandleFunc("POST /api/chirps", func(w http.ResponseWriter, r *http.Request) {
+		type parameters struct {
+			Body   string    `json:"body"`
+			UserID uuid.UUID `json:"user_id"`
+		}
+		message := parameters{}
+		err := json.NewDecoder(r.Body).Decode(&message)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid JSON payload")
+			return
+		}
+		chirp, err := config.db.CreateChirp(r.Context(), database.CreateChirpParams{
+			Body:   message.Body,
+			UserID: message.UserID,
+		})
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusInternalServerError, "Error creating chirp")
+			return
+		}
+		chirpStruct := Chirp{
+			ID:        chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body:      chirp.Body,
+			UserID:    chirp.UserID,
+		}
+		respondWithJSON(w, 201, chirpStruct)
 	})
 	server := http.Server{Handler: servemux, Addr: ":8080"}
 	server.ListenAndServe()

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -15,6 +16,7 @@ type successResponse struct {
 }
 
 func respondWithError(w http.ResponseWriter, code int, message string) {
+	fmt.Println("Error:", message)
 	response := errorResponse{Body: message}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
