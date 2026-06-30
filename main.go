@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Yah-oo5726/server-learning-project/internal/auth"
 	"github.com/Yah-oo5726/server-learning-project/internal/database"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -115,7 +116,8 @@ func main() {
 	})
 	servemux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
 		type parameters struct {
-			Email string `json:"email"`
+			Email    string `json:"email"`
+			Password string `json:"password"`
 		}
 		message := parameters{}
 		err := json.NewDecoder(r.Body).Decode(&message)
@@ -123,7 +125,13 @@ func main() {
 			respondWithError(w, http.StatusBadRequest, "Invalid JSON payload")
 			return
 		}
-		user, err := config.db.CreateUser(r.Context(), message.Email)
+		password, err := auth.HashPassword(message.Password)
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusInternalServerError, "error hashing password")
+			return
+		}
+		user, err := config.db.CreateUser(r.Context(), database.CreateUserParams{Email: message.Email, HashedPassword: password})
 		if err != nil {
 			log.Println(err)
 			respondWithError(w, http.StatusInternalServerError, "Error creating user")
@@ -136,6 +144,41 @@ func main() {
 			Email:     user.Email,
 		}
 		respondWithJSON(w, 201, userStruct)
+	})
+	servemux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
+		type parameters struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+		message := parameters{}
+		err := json.NewDecoder(r.Body).Decode(&message)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid JSON payload")
+			return
+		}
+		user, err := config.db.GetUserByEmail(r.Context(), message.Email)
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusInternalServerError, "Error getting user from database")
+			return
+		}
+		matches, err := auth.CheckPasswordHash(message.Password, user.HashedPassword)
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusInternalServerError, "Error checking password")
+			return
+		}
+		userStruct := User{
+			ID:        user.ID,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+			Email:     user.Email,
+		}
+		if matches {
+			respondWithJSON(w, 200, userStruct)
+		} else {
+			respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+		}
 	})
 	servemux.HandleFunc("POST /api/chirps", func(w http.ResponseWriter, r *http.Request) {
 		type parameters struct {
