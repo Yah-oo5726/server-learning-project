@@ -75,3 +75,27 @@ func TestJWTExpired(t *testing.T) {
 		t.Error("expected error for expired token, got nil")
 	}
 }
+
+func TestJWTInvalid(t *testing.T) {
+	userid := uuid.New()
+	key, err := MakeJWT(userid, "secret", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ValidateJWT(key+"invalid", "secret")
+	if err == nil {
+		t.Error("expected error for invalid token, got nil")
+	}
+}
+
+func TestGetBearerToken(t *testing.T) {
+	header := make(map[string][]string)
+	header["Authorization"] = []string{"Bearer token"}
+	token, err := GetBearerToken(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "token" {
+		t.Errorf("expected token to be 'token', got '%s'", token)
+	}
+}
