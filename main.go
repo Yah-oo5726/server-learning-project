@@ -20,6 +20,7 @@ import (
 
 type apiConfig struct {
 	fileserverHits atomic.Int64
+	jwtSecret      string
 	db             *database.Queries
 }
 
@@ -28,6 +29,7 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
+	JWT       string    `json:"token,omitempty"`
 }
 
 type Chirp struct {
@@ -48,6 +50,7 @@ func (c *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
+	/*Please make your own jwt secret using the function openssl rand -base64 64 for Linux. I don't know about other systems tbh.*/
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		fmt.Println("Error connecting to the database:", err)
@@ -55,7 +58,7 @@ func main() {
 	}
 	defer db.Close()
 	dbQueries := database.New(db)
-	config := apiConfig{db: dbQueries}
+	config := apiConfig{db: dbQueries, jwtSecret: os.Getenv("JWT_SECRET")}
 	servemux := http.NewServeMux()
 	apphandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.StripPrefix("/app", http.FileServer(http.Dir("."))).ServeHTTP(w, r)
@@ -72,7 +75,7 @@ func main() {
 	servemux.HandleFunc("GET /admin/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		_, err := w.Write([]byte(fmt.Sprintf("<html>\n<body>\n<h1>Welcome, Chirpy Admin</h1>\n<p>Chirpy has been visited %d times!</p>\n</body>\n</html>", config.fileserverHits.Load())))
+		_, err := fmt.Fprintf(w, "<html>\n<body>\n<h1>Welcome, Chirpy Admin</h1>\n<p>Chirpy has been visited %d times!</p>\n</body>\n</html>", config.fileserverHits.Load())
 		if err != nil {
 			fmt.Println("Error writing response:", err)
 		}
@@ -147,14 +150,21 @@ func main() {
 	})
 	servemux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
 		type parameters struct {
-			Email    string `json:"email"`
-			Password string `json:"password"`
+			Email      string `json:"email"`
+			Password   string `json:"password"`
+			ExpireTime int    `json:"expires_in_seconds"`
 		}
 		message := parameters{}
 		err := json.NewDecoder(r.Body).Decode(&message)
 		if err != nil {
 			respondWithError(w, http.StatusBadRequest, "Invalid JSON payload")
 			return
+		}
+		if message.ExpireTime == 0 {
+			message.ExpireTime = 3600
+		}
+		if message.ExpireTime > 3600 {
+			message.ExpireTime = 3600
 		}
 		user, err := config.db.GetUserByEmail(r.Context(), message.Email)
 		if err != nil {
@@ -168,11 +178,18 @@ func main() {
 			respondWithError(w, http.StatusInternalServerError, "Error checking password")
 			return
 		}
+		jwt, err := auth.MakeJWT(user.ID, config.jwtSecret, time.Duration(message.ExpireTime)*time.Second)
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusInternalServerError, "Error creating JWT")
+			return
+		}
 		userStruct := User{
 			ID:        user.ID,
 			CreatedAt: user.CreatedAt,
 			UpdatedAt: user.UpdatedAt,
 			Email:     user.Email,
+			JWT:       jwt,
 		}
 		if matches {
 			respondWithJSON(w, 200, userStruct)
@@ -182,8 +199,7 @@ func main() {
 	})
 	servemux.HandleFunc("POST /api/chirps", func(w http.ResponseWriter, r *http.Request) {
 		type parameters struct {
-			Body   string    `json:"body"`
-			UserID uuid.UUID `json:"user_id"`
+			Body string `json:"body"`
 		}
 		message := parameters{}
 		err := json.NewDecoder(r.Body).Decode(&message)
@@ -191,9 +207,19 @@ func main() {
 			respondWithError(w, http.StatusBadRequest, "Invalid JSON payload")
 			return
 		}
+		token, err := auth.GetBearerToken(r.Header)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Missing or invalid authorization header")
+			return
+		}
+		tokenID, err := auth.ValidateJWT(token, config.jwtSecret)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Error validating JWT")
+			return
+		}
 		chirp, err := config.db.CreateChirp(r.Context(), database.CreateChirpParams{
 			Body:   message.Body,
-			UserID: message.UserID,
+			UserID: tokenID,
 		})
 		if err != nil {
 			log.Println(err)
