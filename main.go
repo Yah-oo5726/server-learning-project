@@ -50,7 +50,6 @@ func (c *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
-	/*Please make your own jwt secret using the function openssl rand -base64 64 for Linux. I don't know about other systems tbh.*/
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		fmt.Println("Error connecting to the database:", err)
