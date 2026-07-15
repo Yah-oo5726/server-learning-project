@@ -308,6 +308,41 @@ func main() {
 		config.db.RevokeRefreshToken(r.Context(), token)
 		respondWithJSON(w, 204, "genuinely nothing dawg i have nothing to return")
 	})
+	servemux.HandleFunc("PUT /api/users", func(w http.ResponseWriter, r *http.Request) {
+		type parameters struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+		message := parameters{}
+		err := json.NewDecoder(r.Body).Decode(&message)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid JSON payload")
+			return
+		}
+		token, err := auth.GetBearerToken(r.Header)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Missing or invalid authorization header")
+			return
+		}
+		userID, err := auth.ValidateJWT(token, config.jwtSecret)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Invalid JWT")
+			return
+		}
+		password, err := auth.HashPassword(message.Password)
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusInternalServerError, "error hashing password")
+			return
+		}
+		user, err := config.db.ChangeCredentials(r.Context(), database.ChangeCredentialsParams{ID: userID, Email: message.Email, HashedPassword: password})
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusInternalServerError, "Error updating user")
+			return
+		}
+		respondWithJSON(w, http.StatusOK, User{ID: user.ID, Email: user.Email, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt})
+	})
 	server := http.Server{Handler: servemux, Addr: ":8080"}
 	server.ListenAndServe()
 }
