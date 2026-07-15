@@ -25,11 +25,12 @@ type apiConfig struct {
 }
 
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
-	JWT       string    `json:"token,omitempty"`
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	JWT          string    `json:"token,omitempty"`
+	RefreshToken string    `json:"refresh_token,omitempty"`
 }
 
 type Chirp struct {
@@ -38,6 +39,10 @@ type Chirp struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Body      string    `json:"body"`
 	UserID    uuid.UUID `json:"user_id"`
+}
+
+type JWTtoken struct {
+	Token string `json:"token"`
 }
 
 func (c *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -149,21 +154,14 @@ func main() {
 	})
 	servemux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
 		type parameters struct {
-			Email      string `json:"email"`
-			Password   string `json:"password"`
-			ExpireTime int    `json:"expires_in_seconds"`
+			Email    string `json:"email"`
+			Password string `json:"password"`
 		}
 		message := parameters{}
 		err := json.NewDecoder(r.Body).Decode(&message)
 		if err != nil {
 			respondWithError(w, http.StatusBadRequest, "Invalid JSON payload")
 			return
-		}
-		if message.ExpireTime == 0 {
-			message.ExpireTime = 3600
-		}
-		if message.ExpireTime > 3600 {
-			message.ExpireTime = 3600
 		}
 		user, err := config.db.GetUserByEmail(r.Context(), message.Email)
 		if err != nil {
@@ -177,18 +175,26 @@ func main() {
 			respondWithError(w, http.StatusInternalServerError, "Error checking password")
 			return
 		}
-		jwt, err := auth.MakeJWT(user.ID, config.jwtSecret, time.Duration(message.ExpireTime)*time.Second)
+		jwt, err := auth.MakeJWT(user.ID, config.jwtSecret, 3600*time.Second)
 		if err != nil {
 			log.Println(err)
 			respondWithError(w, http.StatusInternalServerError, "Error creating JWT")
 			return
 		}
+		refreshToken := auth.MakeRefreshToken()
+		_, err = config.db.CreateRefreshToken(r.Context(), database.CreateRefreshTokenParams{Token: refreshToken, UserID: user.ID, ExpiresAt: time.Now().Add(144 * time.Hour)})
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusInternalServerError, "Error creating refresh token")
+			return
+		}
 		userStruct := User{
-			ID:        user.ID,
-			CreatedAt: user.CreatedAt,
-			UpdatedAt: user.UpdatedAt,
-			Email:     user.Email,
-			JWT:       jwt,
+			ID:           user.ID,
+			CreatedAt:    user.CreatedAt,
+			UpdatedAt:    user.UpdatedAt,
+			Email:        user.Email,
+			JWT:          jwt,
+			RefreshToken: refreshToken,
 		}
 		if matches {
 			respondWithJSON(w, 200, userStruct)
@@ -213,7 +219,7 @@ func main() {
 		}
 		tokenID, err := auth.ValidateJWT(token, config.jwtSecret)
 		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Error validating JWT")
+			respondWithError(w, http.StatusUnauthorized, "Error validating JWT")
 			return
 		}
 		chirp, err := config.db.CreateChirp(r.Context(), database.CreateChirpParams{
@@ -273,6 +279,34 @@ func main() {
 			UserID:    chirp.UserID,
 		}
 		respondWithJSON(w, http.StatusOK, chirpStruct)
+	})
+	servemux.HandleFunc("POST /api/refresh", func(w http.ResponseWriter, r *http.Request) {
+		token, err := auth.GetBearerToken(r.Header)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Missing or invalid authorization header")
+			return
+		}
+		tokenInfo, err := config.db.GetRefreshToken(r.Context(), token)
+		if err != nil || tokenInfo.ExpiresAt.Before(time.Now()) || tokenInfo.RevokedAt.Valid {
+			respondWithError(w, http.StatusUnauthorized, "Invalid refresh token")
+			return
+		}
+		jwtToken, err := auth.MakeJWT(tokenInfo.UserID, config.jwtSecret, 3600*time.Second)
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusInternalServerError, "Error creating JWT")
+			return
+		}
+		respondWithJSON(w, http.StatusOK, JWTtoken{Token: jwtToken})
+	})
+	servemux.HandleFunc("POST /api/revoke", func(w http.ResponseWriter, r *http.Request) {
+		token, err := auth.GetBearerToken(r.Header)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Missing or invalid authorization header")
+			return
+		}
+		config.db.RevokeRefreshToken(r.Context(), token)
+		respondWithJSON(w, 204, "genuinely nothing dawg i have nothing to return")
 	})
 	server := http.Server{Handler: servemux, Addr: ":8080"}
 	server.ListenAndServe()
