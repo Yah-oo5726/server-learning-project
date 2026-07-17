@@ -343,6 +343,40 @@ func main() {
 		}
 		respondWithJSON(w, http.StatusOK, User{ID: user.ID, Email: user.Email, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt})
 	})
+	servemux.HandleFunc("DELETE /api/chirps/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, err := uuid.Parse(r.PathValue("id"))
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid chirp ID")
+			return
+		}
+		token, err := auth.GetBearerToken(r.Header)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Missing or invalid authorization header")
+			return
+		}
+		userID, err := auth.ValidateJWT(token, config.jwtSecret)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Invalid JWT")
+			return
+		}
+		chirp, err := config.db.GetChirpByID(r.Context(), id)
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusNotFound, "Chirp not found")
+			return
+		}
+		if chirp.UserID != userID {
+			respondWithError(w, http.StatusForbidden, "You are not allowed to delete this chirp")
+			return
+		}
+		err = config.db.DeleteChirpByID(r.Context(), id)
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusInternalServerError, "Error deleting chirp")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	server := http.Server{Handler: servemux, Addr: ":8080"}
 	server.ListenAndServe()
 }
