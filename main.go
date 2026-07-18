@@ -31,6 +31,7 @@ type User struct {
 	Email        string    `json:"email"`
 	JWT          string    `json:"token,omitempty"`
 	RefreshToken string    `json:"refresh_token,omitempty"`
+	IsChirpyRed  bool      `json:"is_chirpy_red"`
 }
 
 type Chirp struct {
@@ -145,10 +146,11 @@ func main() {
 			return
 		}
 		userStruct := User{
-			ID:        user.ID,
-			CreatedAt: user.CreatedAt,
-			UpdatedAt: user.UpdatedAt,
-			Email:     user.Email,
+			ID:          user.ID,
+			CreatedAt:   user.CreatedAt,
+			UpdatedAt:   user.UpdatedAt,
+			Email:       user.Email,
+			IsChirpyRed: user.IsChirpyRed.Bool,
 		}
 		respondWithJSON(w, 201, userStruct)
 	})
@@ -195,6 +197,7 @@ func main() {
 			Email:        user.Email,
 			JWT:          jwt,
 			RefreshToken: refreshToken,
+			IsChirpyRed:  user.IsChirpyRed.Bool,
 		}
 		if matches {
 			respondWithJSON(w, 200, userStruct)
@@ -341,7 +344,7 @@ func main() {
 			respondWithError(w, http.StatusInternalServerError, "Error updating user")
 			return
 		}
-		respondWithJSON(w, http.StatusOK, User{ID: user.ID, Email: user.Email, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt})
+		respondWithJSON(w, http.StatusOK, User{ID: user.ID, Email: user.Email, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, IsChirpyRed: user.IsChirpyRed.Bool})
 	})
 	servemux.HandleFunc("DELETE /api/chirps/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, err := uuid.Parse(r.PathValue("id"))
@@ -373,6 +376,36 @@ func main() {
 		if err != nil {
 			log.Println(err)
 			respondWithError(w, http.StatusInternalServerError, "Error deleting chirp")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	servemux.HandleFunc("POST /api/polka/webhooks", func(w http.ResponseWriter, r *http.Request) {
+		type parameters struct {
+			Event string `json:"event"`
+			Data  struct {
+				UserID string `json:"user_id"`
+			} `json:"data"`
+		}
+		message := parameters{}
+		err := json.NewDecoder(r.Body).Decode(&message)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid JSON payload")
+			return
+		}
+		if message.Event != "user.upgraded" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		userID, err := uuid.Parse(message.Data.UserID)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+			return
+		}
+		err = config.db.SetUserChirpyRed(r.Context(), userID)
+		if err != nil {
+			log.Println(err)
+			respondWithError(w, http.StatusNotFound, "User Not Found")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
