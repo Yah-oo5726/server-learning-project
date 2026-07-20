@@ -245,23 +245,50 @@ func main() {
 		respondWithJSON(w, 201, chirpStruct)
 	})
 	servemux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
-		chirps, err := config.db.GetChirps(r.Context())
-		if err != nil {
-			log.Println(err)
-			respondWithError(w, http.StatusInternalServerError, "Error fetching chirps")
-			return
-		}
-		chirpStructs := make([]Chirp, len(chirps))
-		for i, chirp := range chirps {
-			chirpStructs[i] = Chirp{
-				ID:        chirp.ID,
-				CreatedAt: chirp.CreatedAt,
-				UpdatedAt: chirp.UpdatedAt,
-				Body:      chirp.Body,
-				UserID:    chirp.UserID,
+		author_id := r.URL.Query().Get("author_id")
+		var chirps []database.Chirp
+		if author_id != "" {
+			author_uuid, err := uuid.Parse(author_id)
+			if err != nil {
+				respondWithError(w, http.StatusBadRequest, "Invalid author ID")
+				return
 			}
+			chirps, err = config.db.GetChirpsByAuthorID(r.Context(), author_uuid)
+			if err != nil {
+				log.Println(err)
+				respondWithError(w, http.StatusInternalServerError, "Error fetching chirps")
+				return
+			}
+			chirpStructs := make([]Chirp, len(chirps))
+			for i, chirp := range chirps {
+				chirpStructs[i] = Chirp{
+					ID:        chirp.ID,
+					CreatedAt: chirp.CreatedAt,
+					UpdatedAt: chirp.UpdatedAt,
+					Body:      chirp.Body,
+					UserID:    chirp.UserID,
+				}
+			}
+			respondWithJSON(w, http.StatusOK, chirpStructs)
+		} else {
+			chirps, err = config.db.GetChirps(r.Context())
+			if err != nil {
+				log.Println(err)
+				respondWithError(w, http.StatusInternalServerError, "Error fetching chirps")
+				return
+			}
+			chirpStructs := make([]Chirp, len(chirps))
+			for i, chirp := range chirps {
+				chirpStructs[i] = Chirp{
+					ID:        chirp.ID,
+					CreatedAt: chirp.CreatedAt,
+					UpdatedAt: chirp.UpdatedAt,
+					Body:      chirp.Body,
+					UserID:    chirp.UserID,
+				}
+			}
+			respondWithJSON(w, http.StatusOK, chirpStructs)
 		}
-		respondWithJSON(w, http.StatusOK, chirpStructs)
 	})
 	servemux.HandleFunc("GET /api/chirps/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, err := uuid.Parse(r.PathValue("id"))
