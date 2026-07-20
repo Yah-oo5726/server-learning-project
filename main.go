@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -246,7 +247,18 @@ func main() {
 	})
 	servemux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
 		author_id := r.URL.Query().Get("author_id")
+		sortquery := r.URL.Query().Get("sort")
+		var sortfunc func(i, j int) bool
 		var chirps []database.Chirp
+		if sortquery == "desc" {
+			sortfunc = func(i, j int) bool {
+				return chirps[i].CreatedAt.After(chirps[j].CreatedAt)
+			}
+		} else {
+			sortfunc = func(i, j int) bool {
+				return chirps[i].CreatedAt.Before(chirps[j].CreatedAt)
+			}
+		}
 		if author_id != "" {
 			author_uuid, err := uuid.Parse(author_id)
 			if err != nil {
@@ -259,17 +271,6 @@ func main() {
 				respondWithError(w, http.StatusInternalServerError, "Error fetching chirps")
 				return
 			}
-			chirpStructs := make([]Chirp, len(chirps))
-			for i, chirp := range chirps {
-				chirpStructs[i] = Chirp{
-					ID:        chirp.ID,
-					CreatedAt: chirp.CreatedAt,
-					UpdatedAt: chirp.UpdatedAt,
-					Body:      chirp.Body,
-					UserID:    chirp.UserID,
-				}
-			}
-			respondWithJSON(w, http.StatusOK, chirpStructs)
 		} else {
 			chirps, err = config.db.GetChirps(r.Context())
 			if err != nil {
@@ -277,18 +278,19 @@ func main() {
 				respondWithError(w, http.StatusInternalServerError, "Error fetching chirps")
 				return
 			}
-			chirpStructs := make([]Chirp, len(chirps))
-			for i, chirp := range chirps {
-				chirpStructs[i] = Chirp{
-					ID:        chirp.ID,
-					CreatedAt: chirp.CreatedAt,
-					UpdatedAt: chirp.UpdatedAt,
-					Body:      chirp.Body,
-					UserID:    chirp.UserID,
-				}
-			}
-			respondWithJSON(w, http.StatusOK, chirpStructs)
 		}
+		chirpStructs := make([]Chirp, len(chirps))
+		for i, chirp := range chirps {
+			chirpStructs[i] = Chirp{
+				ID:        chirp.ID,
+				CreatedAt: chirp.CreatedAt,
+				UpdatedAt: chirp.UpdatedAt,
+				Body:      chirp.Body,
+				UserID:    chirp.UserID,
+			}
+		}
+		sort.Slice(chirpStructs, sortfunc)
+		respondWithJSON(w, http.StatusOK, chirpStructs)
 	})
 	servemux.HandleFunc("GET /api/chirps/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, err := uuid.Parse(r.PathValue("id"))
