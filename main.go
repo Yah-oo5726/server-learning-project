@@ -21,6 +21,7 @@ import (
 type apiConfig struct {
 	fileserverHits atomic.Int64
 	jwtSecret      string
+	polkaKey       string
 	db             *database.Queries
 }
 
@@ -63,7 +64,7 @@ func main() {
 	}
 	defer db.Close()
 	dbQueries := database.New(db)
-	config := apiConfig{db: dbQueries, jwtSecret: os.Getenv("JWT_SECRET")}
+	config := apiConfig{db: dbQueries, jwtSecret: os.Getenv("JWT_SECRET"), polkaKey: os.Getenv("POLKA_KEY")}
 	servemux := http.NewServeMux()
 	apphandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.StripPrefix("/app", http.FileServer(http.Dir("."))).ServeHTTP(w, r)
@@ -391,6 +392,15 @@ func main() {
 		err := json.NewDecoder(r.Body).Decode(&message)
 		if err != nil {
 			respondWithError(w, http.StatusBadRequest, "Invalid JSON payload")
+			return
+		}
+		apiKey, err := auth.GetApiKey(r.Header)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Missing or invalid API key")
+			return
+		}
+		if apiKey != config.polkaKey {
+			respondWithError(w, http.StatusUnauthorized, "Invalid API key")
 			return
 		}
 		if message.Event != "user.upgraded" {
